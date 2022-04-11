@@ -41,6 +41,7 @@ import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -66,15 +67,18 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class BeatsMapperBenchmark {
 
+    @Param({ "1600172297" })
+    private long seed;
+
+    private Random random;
     private MapperService mapperService;
     private SourceToParse[] sources;
-    private Random random;
 
     @Setup
     public void setUp() throws IOException, URISyntaxException {
+        this.random = new Random(seed);
         this.mapperService = createMapperService(readSampleMapping());
-        this.sources = readSampleDocuments();
-        this.random = new Random();
+        this.sources = generateRandomDocuments(10_000);
     }
 
     private static String readSampleMapping() throws IOException, URISyntaxException {
@@ -86,6 +90,67 @@ public class BeatsMapperBenchmark {
             .stream()
             .map(source -> new SourceToParse(UUIDs.randomBase64UUID(), new BytesArray(source), XContentType.JSON))
             .toArray(SourceToParse[]::new);
+    }
+
+    private SourceToParse[] generateRandomDocuments(int count) {
+        var docs = new SourceToParse[count];
+        for (int i = 0; i < count; i++) {
+            docs[i] = generateRandomDocument();
+        }
+        return docs;
+    }
+
+    private SourceToParse generateRandomDocument() {
+        return new SourceToParse(
+            UUIDs.randomBase64UUID(),
+            new BytesArray(
+                "{    \"@timestamp\": "
+                    + System.currentTimeMillis()
+                    + ",    \"log.file.path\": \""
+                    + randomFrom("logs-1.log", "logs-2.log", "logs-3.log")
+                    + "\",    \"log.level\": \""
+                    + "INFO"
+                    + "\",    \"log.logger\": \""
+                    + "some.package.for.logging.requests"
+                    + "\",    \"client.ip\": \""
+                    + randomIp()
+                    + "\",    \"http.request.method\": \""
+                    + randomFrom("GET", "POST")
+                    + "\",    \"http.request.id\": \""
+                    + random.nextInt()
+                    + "\",    \"http.request.bytes\": "
+                    + random.nextInt(1024)
+                    + ",    \"url.path\": \""
+                    + randomString(1024)
+                    + "\",    \"http.response.status_code\": "
+                    + randomFrom(200, 204, 300, 404, 500)
+                    + ",    \"http.response.bytes\": "
+                    + random.nextInt(1024)
+                    + ",    \"http.response.mime_type\": \""
+                    + randomFrom("application/json", "application/xml")
+                    + "\"}"
+            ),
+            XContentType.JSON
+        );
+    }
+
+    private String randomIp() {
+        return "" + random.nextInt(255) + '.' + random.nextInt(255) + '.' + random.nextInt(255) + '.' + random.nextInt(255);
+    }
+
+    private String randomString(int maxLength) {
+        var length = random.nextInt(maxLength);
+        var builder = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            builder.append((byte) (32 + random.nextInt(94)));
+        }
+        return builder.toString();
+    }
+
+    @SafeVarargs
+    @SuppressWarnings("varargs")
+    private <T> T randomFrom(T... items) {
+        return items[random.nextInt(items.length)];
     }
 
     private static Path pathToResource(String path) throws URISyntaxException {
@@ -135,7 +200,6 @@ public class BeatsMapperBenchmark {
 
     @Benchmark
     public List<LuceneDocument> benchmarkParseKeywordFields() {
-        var source = sources[random.nextInt(sources.length)];
-        return mapperService.documentMapper().parse(source).docs();
+        return mapperService.documentMapper().parse(randomFrom(sources)).docs();
     }
 }
