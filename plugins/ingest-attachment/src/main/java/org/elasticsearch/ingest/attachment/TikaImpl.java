@@ -21,6 +21,20 @@ import org.elasticsearch.core.PathUtils;
 import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.jdk.JarHell;
 
+import org.apache.http.HttpEntity;
+import org.apache.http.client.ClientProtocolException;
+//import org.apache.http.client.HttpClient;
+import org.apache.http.client.ResponseHandler;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+//import org.apache.http.protocol.HTTP;
+import org.apache.http.util.EntityUtils;
+
+import java.nio.charset.StandardCharsets;
+//import java.util.Base64;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -96,8 +110,13 @@ final class TikaImpl {
         SpecialPermission.check();
 
         try {
+//            return AccessController.doPrivileged(
+//                (PrivilegedExceptionAction<String>) () -> TIKA_INSTANCE.parseToString(new ByteArrayInputStream(content), metadata, limit),
+//                RESTRICTED_CONTEXT
+//            );
+			
             return AccessController.doPrivileged(
-                (PrivilegedExceptionAction<String>) () -> TIKA_INSTANCE.parseToString(new ByteArrayInputStream(content), metadata, limit),
+                (PrivilegedExceptionAction<String>) () -> tikaRemoteParser(content),
                 RESTRICTED_CONTEXT
             );
         } catch (PrivilegedActionException e) {
@@ -111,6 +130,32 @@ final class TikaImpl {
                 throw new AssertionError(cause);
             }
         }
+    }
+    
+    public static String tikaRemoteParser(byte[] input) throws IOException {
+
+        CloseableHttpClient httpclient = HttpClients.createDefault();
+
+        String url = "http://tika:9998/tika";
+        HttpPut httpPut = new HttpPut(url);
+        httpPut.setHeader("Accept", "text/plain");
+        httpPut.setHeader("X-Tika-OCRLanguage", "kor");
+        httpPut.setHeader("X-Tika-OCRPreserveInterwordSpacing", "true");
+
+        httpPut.setEntity(new ByteArrayEntity(input));
+
+        // Create a custom response handler
+        ResponseHandler<String> responseHandler = response -> {
+            int status = response.getStatusLine().getStatusCode();
+            if (status >= 200 && status < 300) {
+                HttpEntity entity = response.getEntity();
+                return entity != null ? EntityUtils.toString(entity, StandardCharsets.UTF_8) : null;
+            } else {
+                throw new ClientProtocolException("Unexpected response status: " + status);
+            }
+        };
+
+       return httpclient.execute(httpPut, responseHandler);
     }
 
     // apply additional containment for parsers, this is intersected with the current permissions
@@ -159,6 +204,7 @@ final class TikaImpl {
         perms.add(new RuntimePermission("accessClassInPackage.sun.java2d.cmm.kcms"));
         // xmlbeans, use by POI, needs to get the context classloader
         perms.add(new RuntimePermission("getClassLoader"));
+        perms.add(new SocketPermission("*", "connect,resolve"));
         perms.setReadOnly();
         return perms;
     }
