@@ -8,6 +8,10 @@
 
 // NOTE: when modifying this file, look at restrictions in TikaImpl too
 grant {
+
+  // needed for multiple server connections
+  permission java.net.SocketPermission "*", "connect,resolve";
+  
   // needed to apply additional sandboxing to tika parsing
   permission java.security.SecurityPermission "createAccessControlContext";
 
